@@ -25,7 +25,7 @@ bool isRunning = false;          // false = 安全狀態 (綠燈), true = 自主
 int lastButtonState = HIGH;      
 unsigned long lastPressTime = 0; 
 
-// 超時計時變數
+// 脫軌計時變數
 unsigned long outOfTrackStartTime = 0; // 紀錄開始脫軌的時間點
 bool isOutOfTrack = false;             // 目前是否處於脫軌狀態
 
@@ -64,7 +64,7 @@ void setup() {
 }
 
 void loop() {
-  // --- A. 按鈕單擊偵測 (切換安全/導航狀態) ---
+  // A. 按鈕單擊偵測 (切換安全/導航狀態)
   int currentButtonState = digitalRead(BOOT_BUTTON);
   
   if (lastButtonState == HIGH && currentButtonState == LOW) {
@@ -83,88 +83,81 @@ void loop() {
   }
   lastButtonState = currentButtonState;
 
-  // --- B. 核心運行邏輯 ---
+  //  B. 核心運行邏輯
     if (isRunning) {
     int s[5];
-    for(int i=0; i<5; i++) s[i] = digitalRead(sensorPins[i]); // 微秒級快照5路數位訊號
+    for(int i=0; i<5; i++) s[i] = digitalRead(sensorPins[i]); // 5路數位訊號
 
-    // === 判斷是否完全超出賽道 (5路皆為 1，代表全白地板) ===
+    // 判斷是否完全超出賽道 (5路皆為 1，代表全白地板) 
     if (s[0] == 1 && s[1] == 1 && s[2] == 1 && s[3] == 1 && s[4] == 1) {
       
-      // 剛衝出賽道的「第一個微秒瞬間」，啟動單次計時鎖定
+      // 衝出賽道即紀錄時刻
       if (!isOutOfTrack) {
         outOfTrackStartTime = millis(); // 記錄精確脫軌時間原點
         isOutOfTrack = true;
       }
 
-      // 動態計算從小車脫軌至今累計了多少毫秒
+      // 計算脫軌毫秒數
       unsigned long elapsed = millis() - outOfTrackStartTime;
 
-      // 檢查是否真正失控狂奔超過 5 秒限制
+      // 檢查是否超過 5 秒
       if (elapsed >= TIMEOUT_LIMIT) {
-        isRunning = false;      // 強制熔斷關閉導航狀態
-        drive(0, 0);           // 馬達立刻完全斷電煞停
-        setLedColor(0, 255, 0); // 系統恢復安全綠燈
+        isRunning = false;      // 關閉導航狀態
+        drive(0, 0);           // 馬達煞停
+        setLedColor(0, 255, 0); // 恢復綠燈
         isOutOfTrack = false;   // 狀態清空
-        return;                 // 強制跳出本次循環，保護硬體
+        return;                 // 跳出本次循環
       } else {
-        // 脫軌在 5 秒緩衝期之內：切換為藍燈指示
-        // 【隔離防禦】：刪除 drive(180, 180)，不對馬達下達任何新指令，
-        // 讓馬達維持衝出賽道前的慣性速度前進，徹底消除微秒級高頻切換速度導致的大電流重啟問題。
+        // 脫軌在 5 秒之內：切換為藍燈指示
         setLedColor(0, 0, 255); 
       }
     } else {
       // 正常在賽道內：自主導航狀態，紅燈恆亮
       setLedColor(255, 0, 0);
-      
-      // === 【終極防禦：動態洗滌計時原點，根治亂急停】 ===
       isOutOfTrack = false; 
-      outOfTrackStartTime = millis(); // 只要在軌道上，時間原點就跟著現在時間同步前進，老帳直接一筆勾銷！
+      outOfTrackStartTime = millis(); // 只要在軌道上，時間原點與現在時間同步
 
-      if (s[1] == 0 && s[0] == 0 && s[2] == 0 && s[3] == 0) {
+      if (s[0] == 0 && s[1] == 0 && s[2] == 0 && s[3] == 0) {
         // 直角左轉：左輪直接反轉 (向後拉)，右輪全速向前
         digitalWrite(motor1Pin1, HIGH); digitalWrite(motor1Pin2, LOW); // 左輪反轉
-        ledcWrite(enable1Pin, REVERSE_SPEED); // 內側輪給 180 反轉扭力
+        ledcWrite(enable1Pin, REVERSE_SPEED); // 給予定義的 230 反轉速
         digitalWrite(motor2Pin1, LOW);  digitalWrite(motor2Pin2, HIGH); // 右輪正轉
         ledcWrite(enable2Pin, MAX_SPEED); // 外側輪全速 255
       }
       else if (s[1] == 0 && s[2] == 0 && s[3] == 0 && s[4] == 0) { 
-        // 左馬達 (外側) 維持正轉
+        // 直角右轉
         digitalWrite(motor1Pin1, LOW); digitalWrite(motor1Pin2, HIGH);
-        ledcWrite(enable1Pin, MAX_SPEED); // 全速 255 向前推
-        // 原本是 LOW / HIGH (正轉)，現在對調成 HIGH / LOW (反轉)
+        ledcWrite(enable1Pin, MAX_SPEED); 
         digitalWrite(motor2Pin1, HIGH); digitalWrite(motor2Pin2, LOW);
-        ledcWrite(enable2Pin, REVERSE_SPEED); // 給予 180 的強大反轉扭力，反向拉扯車頭
+        ledcWrite(enable2Pin, REVERSE_SPEED); 
       }
-      else if (s[1] == 0 && s[0] == 0 && s[2] == 0) {
-        // 直角左轉：左輪直接反轉 (向後拉)，右輪全速向前
-        digitalWrite(motor1Pin1, HIGH); digitalWrite(motor1Pin2, LOW); // 左輪反轉
-        ledcWrite(enable1Pin, REVERSE_SPEED); // 內側輪給 180 反轉扭力
-        digitalWrite(motor2Pin1, LOW);  digitalWrite(motor2Pin2, HIGH); // 右輪正轉
-        ledcWrite(enable2Pin, MAX_SPEED); // 外側輪全速 255
+      else if (s[0] == 0 && s[1] == 0 && s[2] == 0) {
+        // 直角左轉
+        digitalWrite(motor1Pin1, HIGH); digitalWrite(motor1Pin2, LOW);
+        ledcWrite(enable1Pin, REVERSE_SPEED); 
+        digitalWrite(motor2Pin1, LOW);  digitalWrite(motor2Pin2, HIGH);
+        ledcWrite(enable2Pin, MAX_SPEED); 
       }
       else if (s[2] == 0 && s[3] == 0 && s[4] == 0) { 
-        // 左馬達 (外側) 維持正轉
+        // 直角右轉
         digitalWrite(motor1Pin1, LOW); digitalWrite(motor1Pin2, HIGH);
-        ledcWrite(enable1Pin, MAX_SPEED); // 全速 255 向前推
-        // 原本是 LOW / HIGH (正轉)，現在對調成 HIGH / LOW (反轉)
+        ledcWrite(enable1Pin, MAX_SPEED);
         digitalWrite(motor2Pin1, HIGH); digitalWrite(motor2Pin2, LOW);
-        ledcWrite(enable2Pin, REVERSE_SPEED); // 給予 180 的強大反轉扭力，反向拉扯車頭
+        ledcWrite(enable2Pin, REVERSE_SPEED);
       }
       else if (s[1] == 0 && s[0] == 0) {
-        // 直角左轉：左輪直接反轉 (向後拉)，右輪全速向前
-        digitalWrite(motor1Pin1, HIGH); digitalWrite(motor1Pin2, LOW); // 左輪反轉
-        ledcWrite(enable1Pin, REVERSE_SPEED); // 內側輪給 180 反轉扭力
-        digitalWrite(motor2Pin1, LOW);  digitalWrite(motor2Pin2, HIGH); // 右輪正轉
-        ledcWrite(enable2Pin, MAX_SPEED); // 外側輪全速 255
+        // 直角左轉
+        digitalWrite(motor1Pin1, HIGH); digitalWrite(motor1Pin2, LOW);
+        ledcWrite(enable1Pin, REVERSE_SPEED); 
+        digitalWrite(motor2Pin1, LOW);  digitalWrite(motor2Pin2, HIGH);
+        ledcWrite(enable2Pin, MAX_SPEED);
       }
       else if (s[3] == 0 && s[4] == 0) { 
-        // 左馬達 (外側) 維持正轉
+         // 直角右轉
         digitalWrite(motor1Pin1, LOW); digitalWrite(motor1Pin2, HIGH);
-        ledcWrite(enable1Pin, MAX_SPEED); // 全速 255 向前推
-        // 原本是 LOW / HIGH (正轉)，現在對調成 HIGH / LOW (反轉)
+        ledcWrite(enable1Pin, MAX_SPEED);
         digitalWrite(motor2Pin1, HIGH); digitalWrite(motor2Pin2, LOW);
-        ledcWrite(enable2Pin, REVERSE_SPEED); // 給予 180 的強大反轉扭力，反向拉扯車頭
+        ledcWrite(enable2Pin, REVERSE_SPEED);
       }
       else if (s[2] == 0) { 
         drive(230,230); // 直行全速
