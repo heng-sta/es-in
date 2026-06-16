@@ -108,7 +108,8 @@ void loop() {
         isOutOfTrack = false;   // 狀態清空
         return;                 // 跳出本次循環
       }
-    } else {
+    } 
+    else {
       // 正常在賽道內：自主導航狀態，紅燈恆亮
       setLedColor(255, 0, 0);
       isOutOfTrack = false; 
