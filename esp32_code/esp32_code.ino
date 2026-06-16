@@ -109,7 +109,7 @@ void loop() {
         return;                 // 跳出本次循環
       } else {
         // 脫軌在 5 秒之內：切換為藍燈指示
-        setLedColor(0, 0, 255); 
+        setLedColor(255, 0, 0); 
       }
     } else {
       // 正常在賽道內：自主導航狀態，紅燈恆亮
